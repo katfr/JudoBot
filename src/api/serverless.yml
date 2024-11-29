@@ -1,0 +1,133 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+
+service: bot-judo
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  iamRoleStatements:
+    # Definindo permissões para o Rekognition
+    - Effect: "Allow"
+      Action:
+        - "rekognition:DetectFaces"
+        - "rekognition:DetectLabels"
+        - "rekognition:RecognizeCelebrities"
+        - "rekognition:CompareFaces"
+        - "rekognition:DetectModerationLabels"        
+      Resource: "*"
+    # Definindo permissões para o S3
+    - Effect: "Allow"
+      Action:
+        - "s3:GetObject"
+      Resource: "arn:aws:s3:::*"  
+    # Definindo permissões para o Bedrock
+    - Effect: "Allow"
+      Action:
+        - "bedrock:*"
+      Resource: "*" 
+    # Definindo permissões para o Lex
+    - Effect: "Allow"
+      Action:
+          - lex:*            
+      Resource: "*" 
+    # Define permissões para o DynamoDB
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource: arn:aws:dynamodb:us-east-1:*:table/${env:DYNAMODB_TABLE_NAME}
+    # Define permissões para o S3
+    - Effect: Allow
+      Action:
+        - s3:ListBucket
+        - s3:GetObject
+        - s3:PutObject
+        - s3:CreateBucket
+        - s3:DeleteBucket
+        - s3:PutBucketPolicy
+        - s3:DeleteBucketPolicy
+        - s3:GetBucketPolicy
+      Resource:
+        - arn:aws:s3:::${env:S3_BUCKET_NAME_AUDIO}
+        - arn:aws:s3:::${env:S3_BUCKET_NAME_AUDIO}/*
+    # Define permissões para o  polly 
+    - Effect: Allow
+      Action:
+        - polly:SynthesizeSpeech
+      Resource: '*'
+
+functions:
+  health:
+    handler: routes.handler.health
+    events:
+      - httpApi:
+          path: /
+          method: get
+  telegram:
+    handler: routes.integration.integration_telegram
+    timeout: 29 # Definindo timeout para função
+    events:
+      - httpApi:
+          path: /telegram
+          method: post
+  polly:
+    handler: routes.integration_audio.polly_tts
+    events:
+      - httpApi:
+          path: /polly
+          method: post
+
+resources:
+  Resources:
+  # Cria a tabela no DynamoDB
+    DynamoDbTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: unique_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: unique_id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${env:DYNAMODB_TABLE_NAME}
+    # Cria o bucket para o audio no S3
+    S3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${env:S3_BUCKET_NAME_AUDIO}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: BucketOwnerEnforced
+    # Define a política de bucket para permitir acesso público
+    S3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref S3Bucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            # Permitir leitura pública dos objetos
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: "*"
+              Action: s3:GetObject
+              Resource: arn:aws:s3:::${env:S3_BUCKET_NAME_AUDIO}/*
+            # Permitir colocar objetos no bucket
+            - Sid: PublicWritePutObject
+              Effect: Allow
+              Principal: "*"
+              Action: s3:PutObject
+              Resource: arn:aws:s3:::${env:S3_BUCKET_NAME_AUDIO}/*
+
+          
+plugins:
+  - serverless-dotenv-plugin
